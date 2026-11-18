@@ -1,0 +1,11 @@
+Package: com.axs.duodesktop
+Name: DuoDesktop
+Version: 5.2.0
+Architecture: iphoneos-arm64
+Description: 桌面轮播与快捷动作面板
+Maintainer: Axs
+Author: Axs
+Section: Axs-Tweaks
+Depends: mobilesubstrate, preferenceloader
+Icon: https://axs66.github.io/pro/icon/duodesktop.png
+Sileodepiction: https://axs66.github.io/pro/sileodepiction/duodesktop/js.json
