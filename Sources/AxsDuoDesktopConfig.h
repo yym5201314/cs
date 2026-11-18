@@ -14,7 +14,14 @@
 @end
 
 // Read-only accessors for call sites that need a single value.
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 BOOL axs_duodesktop_flag(NSString *key, BOOL fallback);
 double axs_duodesktop_number(NSString *key, double fallback);
 NSInteger axs_duodesktop_count(NSString *key, NSInteger fallback);
 id axs_duodesktop_setting(NSString *key, id fallback);
+#ifdef __cplusplus
+}
+#endif

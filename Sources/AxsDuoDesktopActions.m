@@ -663,7 +663,6 @@ NSString *axs_duodesktop_unavailableReason(NSDictionary *record) {
     NSDictionary *normalized = axs_duodesktop_normalizeRecord(record);
     if (!normalized) return @"动作配置无效，请重新选择";
     NSString *type = normalized[@"type"];
-    if ([type isEqual:@"cc"] || [type isEqual:@"solo"]) return @"此类型的承载接口尚未恢复";
     if ([type isEqual:@"tool"]) {
         NSDictionary *tool = axs_duodesktop_catalogEntry(normalized[@"value"]);
         if (!tool) return @"当前版本没有这个系统动作";

@@ -3,6 +3,10 @@
 #import <Foundation/Foundation.h>
 #import <UIKit/UIKit.h>
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 NS_ASSUME_NONNULL_BEGIN
 
 // Posted after an action record set changes so visible grids can reload.
@@ -27,3 +31,6 @@ UIViewController * _Nullable axs_duodesktop_presenter(void);
 void axs_duodesktop_showMessage(NSString *message);
 
 NS_ASSUME_NONNULL_END
+#ifdef __cplusplus
+}
+#endif

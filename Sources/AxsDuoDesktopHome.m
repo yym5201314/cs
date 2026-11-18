@@ -134,6 +134,10 @@ static void (*axs_duodesktop_mediaSeek(void))(double);
 @property (nonatomic, strong) UILabel *clockTime;
 @property (nonatomic, strong) UIButton *clockDate;
 @property (nonatomic, strong) AxsDuoDesktopClockFace *clockFace;
+// Rebuilt only when the locale or time zone changes: the 1s tick must not
+// allocate a formatter per second.
+@property (nonatomic, strong) NSDateFormatter *timeFormatter;
+@property (nonatomic, strong) NSDateFormatter *dayFormatter;
 
 @property (nonatomic, strong) UIImageView *artwork;
 @property (nonatomic, strong) UILabel *mediaTitle;
@@ -149,6 +153,7 @@ static void (*axs_duodesktop_mediaSeek(void))(double);
 @property (nonatomic, strong) UIView *calendarRows;
 @property (nonatomic, strong) UILabel *calendarStatus;
 @property (nonatomic, strong) UIButton *calendarButton;
+@property (nonatomic, strong) NSDateFormatter *eventFormatter;
 @property (nonatomic, strong) EKEventStore *eventStore;
 @property (nonatomic, strong) NSArray<EKEvent *> *events;
 @property (nonatomic, strong) dispatch_queue_t calendarQueue;
@@ -175,9 +180,13 @@ static void (*axs_duodesktop_mediaSeek(void))(double);
                                  UIApplicationDidBecomeActiveNotification]) {
             id token = [center addObserverForName:name object:nil queue:NSOperationQueue.mainQueue
                                        usingBlock:^(__unused NSNotification *note) {
+                // Locale, time zone and foreground changes only need fresh
+                // text; a full teardown would flash the panel and reset the
+                // current page.
+                [weakSelf axs_duodesktop_invalidateFormatters];
                 [weakSelf axs_duodesktop_tick];
                 [weakSelf axs_duodesktop_reloadCalendar];
-                [weakSelf axs_duodesktop_refresh];
+                [weakSelf axs_duodesktop_applyLayout];
             }];
             [_observers addObject:token];
         }
@@ -453,18 +462,34 @@ static void (*axs_duodesktop_mediaSeek(void))(double);
     UIView *root = self.root;
     CGFloat width = CGRectGetWidth(root.bounds);
     CGFloat total = CGRectGetHeight(root.bounds);
-    CGFloat top = MAX(root.safeAreaInsets.top, 36) + 8;
-    CGFloat height = self.expanded ? MIN(370, total * 0.46) : 226;
-    if (width > total) height = self.expanded ? 210 : 170;
-    height = MIN(height, MAX(100, total - top - 200));
-    CGRect frame = CGRectMake(16, top, width - 32, height);
+    UIEdgeInsets safe = root.safeAreaInsets;
+    CGFloat top = MAX(safe.top, 36) + 8;
+    // Derive the panel height from the space actually available. A fixed
+    // 226/370 pair cannot hold up on iPhone SE, iPad, landscape or Split View.
+    CGFloat bottomInset = MAX(safe.bottom, 8);
+    CGFloat available = MAX(220, total - top - bottomInset);
+    BOOL landscape = width > total;
+    CGFloat compactBase = landscape ? 110 : 196;
+    CGFloat compactCap = landscape ? 150 : 244;
+    CGFloat compactRatio = landscape ? 0.32 : 0.27;
+    CGFloat expandedRatio = landscape ? 0.55 : 0.50;
+    CGFloat expandedCap = landscape ? 200 : 420;
+    // The icon grid keeps at least a third of the usable height, so the panel
+    // can never swallow it on a small screen.
+    CGFloat iconFloor = MAX(landscape ? 110 : 220, available * (landscape ? 0.28 : 0.36));
+    CGFloat maxHeight = MAX(120, available - iconFloor);
+    CGFloat compact = MIN(MAX(compactBase, available * compactRatio), compactCap);
+    CGFloat expanded = MIN(MAX(compact + 72, available * expandedRatio), expandedCap);
+    CGFloat height = MIN(self.expanded ? expanded : compact, maxHeight);
+    CGRect frame = CGRectMake(16, top, MAX(120, width - 32), height);
     if (!CGRectEqualToRect(self.surface.frame, frame)) self.surface.frame = frame;
     self.material.frame = self.surface.bounds;
-    self.heading.frame = CGRectMake(18, 8, 140, 24);
-    self.editButton.frame = CGRectMake(width - 138, 2, 42, 38);
-    self.expandButton.frame = CGRectMake(width - 92, 2, 42, 38);
-    self.pager.frame = CGRectMake(0, 38, width - 32, MAX(1, height - 62));
-    self.dots.frame = CGRectMake(40, height - 26, width - 112, 24);
+    CGFloat inner = CGRectGetWidth(self.surface.bounds);
+    self.heading.frame = CGRectMake(18, 8, MIN(190, MAX(80, inner - 130)), 24);
+    self.editButton.frame = CGRectMake(inner - 98, 2, 42, 38);
+    self.expandButton.frame = CGRectMake(inner - 50, 2, 42, 38);
+    self.pager.frame = CGRectMake(0, 38, inner, MAX(1, height - 62));
+    self.dots.frame = CGRectMake(40, height - 26, MAX(40, inner - 96), 24);
     self.dots.hidden = self.kinds.count < 2;
     [self axs_duodesktop_layoutPanes];
 
@@ -567,6 +592,42 @@ static void (*axs_duodesktop_mediaSeek(void))(double);
     self.dots.currentPage = selected;
 }
 
+- (void)axs_duodesktop_invalidateFormatters {
+    self.timeFormatter = nil;
+    self.dayFormatter = nil;
+    self.eventFormatter = nil;
+}
+
+- (NSDateFormatter *)axs_duodesktop_timeFormatter {
+    if (!_timeFormatter) {
+        NSDateFormatter *formatter = [NSDateFormatter new];
+        formatter.timeStyle = NSDateFormatterShortStyle;
+        formatter.dateStyle = NSDateFormatterNoStyle;
+        _timeFormatter = formatter;
+    }
+    return _timeFormatter;
+}
+
+- (NSDateFormatter *)axs_duodesktop_dayFormatter {
+    if (!_dayFormatter) {
+        NSDateFormatter *formatter = [NSDateFormatter new];
+        formatter.timeStyle = NSDateFormatterNoStyle;
+        formatter.dateStyle = NSDateFormatterFullStyle;
+        _dayFormatter = formatter;
+    }
+    return _dayFormatter;
+}
+
+- (NSDateFormatter *)axs_duodesktop_eventFormatter {
+    if (!_eventFormatter) {
+        NSDateFormatter *formatter = [NSDateFormatter new];
+        formatter.timeStyle = NSDateFormatterShortStyle;
+        formatter.dateStyle = NSDateFormatterNoStyle;
+        _eventFormatter = formatter;
+    }
+    return _eventFormatter;
+}
+
 - (void)axs_duodesktop_tick {
     if (!self.root.window || self.surface.hidden) {
         [self.timer invalidate];
@@ -574,13 +635,10 @@ static void (*axs_duodesktop_mediaSeek(void))(double);
         return;
     }
     NSDate *now = NSDate.date;
-    NSDateFormatter *formatter = [NSDateFormatter new];
-    formatter.timeStyle = NSDateFormatterShortStyle;
-    self.clockTime.text = [formatter stringFromDate:now];
+    self.clockTime.text = [self.axs_duodesktop_timeFormatter stringFromDate:now];
     [self.clockFace axs_duodesktop_updateWithDate:now];
-    formatter.timeStyle = NSDateFormatterNoStyle;
-    formatter.dateStyle = NSDateFormatterFullStyle;
-    [self.clockDate setTitle:[formatter stringFromDate:now] forState:UIControlStateNormal];
+    [self.clockDate setTitle:[self.axs_duodesktop_dayFormatter stringFromDate:now]
+                    forState:UIControlStateNormal];
 
     NSTimeInterval duration = [self.mediaInfo[axs_duodesktop_mediaKey("kMRMediaRemoteNowPlayingInfoDuration") ?: @"Duration"] doubleValue];
     NSTimeInterval elapsed = [self.mediaInfo[axs_duodesktop_mediaKey("kMRMediaRemoteNowPlayingInfoElapsedTime") ?: @"ElapsedTime"] doubleValue];
@@ -780,8 +838,7 @@ static void (*axs_duodesktop_mediaSeek(void))(double);
     CGFloat width = self.calendarRows.bounds.size.width;
     CGFloat rowHeight = 42;
     NSUInteger count = MIN(self.events.count, (NSUInteger)MAX(1, floor(height / rowHeight)));
-    NSDateFormatter *formatter = [NSDateFormatter new];
-    formatter.timeStyle = NSDateFormatterShortStyle;
+    NSDateFormatter *formatter = self.axs_duodesktop_eventFormatter;
     for (NSUInteger index = 0; index < count; index++) {
         EKEvent *event = self.events[index];
         NSString *time = event.allDay ? @"全天" : [formatter stringFromDate:event.startDate];
